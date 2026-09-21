@@ -8,13 +8,43 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _normalize_async_database_url(url: str) -> str:
+    """Normalize any database URL for the async SQLAlchemy asyncpg driver."""
+    if url.startswith("postgres://"):
+        return "postgresql+asyncpg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + url[len("postgresql://"):]
+    if url.startswith("postgresql+psycopg://"):
+        return "postgresql+asyncpg://" + url[len("postgresql+psycopg://"):]
+    if url.startswith("postgresql+psycopg2://"):
+        return "postgresql+asyncpg://" + url[len("postgresql+psycopg2://"):]
+    if url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
+        return "sqlite+aiosqlite://" + url[len("sqlite://"):]
+    return url
+
+
+def _normalize_psycopg_database_url(url: str) -> str | None:
+    """Normalize a database URL into a standard Psycopg connection string for AsyncPostgresSaver."""
+    if url.startswith("sqlite"):
+        return None
+    if url.startswith("postgresql+asyncpg://"):
+        return "postgresql://" + url[len("postgresql+asyncpg://"):]
+    if url.startswith("postgresql+psycopg://"):
+        return "postgresql://" + url[len("postgresql+psycopg://"):]
+    if url.startswith("postgresql+psycopg2://"):
+        return "postgresql://" + url[len("postgresql+psycopg2://"):]
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
 class Settings(BaseSettings):
     """Configuration loaded lazily from environment variables."""
 
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
 
-    postgres_host: str = "postgres"
+    postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     postgres_user: str = "rag_user"
     postgres_password: SecretStr = SecretStr("change-me")
@@ -114,7 +144,7 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         """Return an async SQLAlchemy database URL without logging credentials."""
         if self.database_url_override is not None:
-            return self.database_url_override.get_secret_value()
+            return _normalize_async_database_url(self.database_url_override.get_secret_value())
         password = quote_plus(self.postgres_password.get_secret_value())
         user = quote_plus(self.postgres_user)
         return (
@@ -125,12 +155,11 @@ class Settings(BaseSettings):
     @property
     def checkpoint_database_url(self) -> str | None:
         """Return a Psycopg-compatible PostgreSQL URL, or none for isolated SQLite tests."""
-        database_url = self.database_url
-        if database_url.startswith("sqlite"):
-            return None
-        if database_url.startswith("postgresql+asyncpg://"):
-            return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-        return database_url
+        if self.database_url_override is not None:
+            return _normalize_psycopg_database_url(
+                self.database_url_override.get_secret_value()
+            )
+        return _normalize_psycopg_database_url(self.database_url)
 
 
 @lru_cache(maxsize=1)
