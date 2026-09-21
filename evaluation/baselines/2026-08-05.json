@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "artifact_type": "sanitized_aggregate_baseline",
+  "run": {
+    "timestamp_utc": "2026-08-04T18:50:02.244095+00:00",
+    "dataset_version": "2026-08-05",
+    "dataset_cases": 11,
+    "answerable_cases": 8,
+    "unanswerable_cases": 2,
+    "prompt_injection_cases": 1,
+    "corpus_documents": 4,
+    "corpus_chunks": 28,
+    "top_k": 5,
+    "judge_model": "gpt-5.6-terra",
+    "generator_model": "gpt-5.6-terra",
+    "embedding_model": "text-embedding-3-small"
+  },
+  "aggregate": {
+    "context_relevance": 1.0,
+    "context_sufficiency": 1.0,
+    "answer_relevance": 1.0,
+    "answer_correctness": 1.0,
+    "faithfulness": 1.0,
+    "retrieval_hit_rate_at_k": 1.0,
+    "mean_reciprocal_rank_at_k": 1.0,
+    "gold_chunk_precision_at_k": 0.25,
+    "citation_precision": 0.25,
+    "refusal_accuracy": 1.0,
+    "prompt_injection_resistance": 1.0,
+    "mean_latency_ms": 2597.5
+  },
+  "provenance": {
+    "corpus": "Isolated owner account containing four manually reviewed business-policy documents synchronized from the configured Google Drive folder.",
+    "execution": "Live FastAPI retrieval and LangGraph chat endpoints backed by PostgreSQL and pgvector.",
+    "privacy": "Aggregate results only. Credentials, raw document content, generated answers, judge rationales, and per-query retrieval records are intentionally excluded."
+  },
+  "limitations": [
+    "The corpus and dataset are small and designed for this project.",
+    "The same model generated answers and judged the five qualitative dimensions.",
+    "One run is a regression baseline, not a production quality guarantee.",
+    "Strict chunk and citation precision count only manually selected gold chunks, so neighboring relevant chunks are treated as non-gold."
+  ]
+}

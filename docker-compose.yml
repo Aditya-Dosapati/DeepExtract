@@ -1,0 +1,157 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rag_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-agentic_rag}
+    ports:
+      - "${POSTGRES_PORT_FORWARD:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag_user} -d ${POSTGRES_DB:-agentic_rag}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_USER: ${POSTGRES_USER:-rag_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-agentic_rag}
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me-32}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      LLM_MODEL: ${LLM_MODEL:-llama-3.3-70b-versatile}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-sentence_transformers}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-384}
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
+      RETRIEVAL_SCORE_THRESHOLD: ${RETRIEVAL_SCORE_THRESHOLD:-0.2}
+      RETRIEVAL_MAX_CONTEXT_CHARS: ${RETRIEVAL_MAX_CONTEXT_CHARS:-12000}
+      AGENT_MAX_RETRIEVAL_RETRIES: ${AGENT_MAX_RETRIEVAL_RETRIES:-1}
+      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-25}
+      GOOGLE_DRIVE_MCP_URL: ${GOOGLE_DRIVE_MCP_URL:-https://drivemcp.googleapis.com/mcp/v1}
+      GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID:-}
+      GOOGLE_DRIVE_ACCESS_TOKEN: ${GOOGLE_DRIVE_ACCESS_TOKEN:-}
+      GOOGLE_DRIVE_QUOTA_PROJECT: ${GOOGLE_DRIVE_QUOTA_PROJECT:-}
+      GOOGLE_DRIVE_INCLUDE_SUBFOLDERS: ${GOOGLE_DRIVE_INCLUDE_SUBFOLDERS:-true}
+      GOOGLE_DRIVE_MAX_FILES: ${GOOGLE_DRIVE_MAX_FILES:-100}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=2)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  mcp:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command:
+      - sh
+      - -c
+      - ".venv/bin/alembic upgrade head && exec .venv/bin/python -m backend.app.mcp.server"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_USER: ${POSTGRES_USER:-rag_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-agentic_rag}
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me-32}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      LLM_MODEL: ${LLM_MODEL:-llama-3.3-70b-versatile}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-sentence_transformers}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-384}
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
+      RETRIEVAL_SCORE_THRESHOLD: ${RETRIEVAL_SCORE_THRESHOLD:-0.2}
+      RETRIEVAL_MAX_CONTEXT_CHARS: ${RETRIEVAL_MAX_CONTEXT_CHARS:-12000}
+      AGENT_MAX_RETRIEVAL_RETRIES: ${AGENT_MAX_RETRIEVAL_RETRIES:-1}
+      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-25}
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-streamable-http}
+      MCP_HOST: ${MCP_HOST:-0.0.0.0}
+      MCP_PORT: ${MCP_PORT:-8001}
+      MCP_PATH: ${MCP_PATH:-/mcp}
+      MCP_ISSUER_URL: ${MCP_ISSUER_URL:-http://localhost:8000}
+      MCP_RESOURCE_SERVER_URL: ${MCP_RESOURCE_SERVER_URL:-http://localhost:8001/mcp}
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      BACKEND_URL: http://backend:8000
+      MCP_HEALTH_URL: http://mcp:8001/health
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+      mcp:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import frontend.app, urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=2)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

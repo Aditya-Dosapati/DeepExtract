@@ -1,0 +1,74 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rag_user
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: agentic_rag_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rag_user -d agentic_rag_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgresql+asyncpg://rag_user:ci-password@localhost:5432/agentic_rag_test
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --extra frontend
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Type checking
+        run: uv run mypy backend frontend scripts
+
+      - name: Apply PostgreSQL migrations
+        run: uv run alembic upgrade head
+
+      - name: Unit and integration tests
+        run: uv run pytest --cov=backend.app --cov-report=term-missing --cov-fail-under=80
+
+      - name: Validate Docker Compose
+        run: docker compose config
+
+      - name: Build backend image
+        run: docker build --file backend/Dockerfile .
+
+      - name: Build frontend image
+        run: docker build --file frontend/Dockerfile .
